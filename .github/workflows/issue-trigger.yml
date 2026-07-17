@@ -1,0 +1,75 @@
+name: Issue Resolver Trigger
+
+# Fire whenever a new issue is opened.
+on:
+  issues:
+    types: [opened]
+
+# We read the issue payload and, when the author hasn't authorized yet,
+# post a comment with the one-time authorization link.
+permissions:
+  issues: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send signed webhook to the Cloudflare Worker
+        env:
+          WORKER_URL: ${{ secrets.WORKER_URL }}          # e.g. https://issue-resolver.<subdomain>.workers.dev
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}   # must match the Worker's WEBHOOK_SECRET
+          GH_TOKEN: ${{ github.token }}                   # lets `gh issue comment` post back
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ACTOR: ${{ github.event.issue.user.login }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          # Build the JSON payload safely (jq handles escaping of title/body).
+          payload=$(jq -n \
+            --arg title "$ISSUE_TITLE" \
+            --arg body "${ISSUE_BODY:-}" \
+            --arg repo "$REPO" \
+            --argjson issue_number "$ISSUE_NUMBER" \
+            --arg actor "$ACTOR" \
+            --arg default_branch "$DEFAULT_BRANCH" \
+            '{title:$title, body:$body, repo:$repo, issue_number:$issue_number, actor:$actor, default_branch:$default_branch}')
+
+          # HMAC-SHA256 over the exact bytes we will POST (GitHub-webhook style).
+          sig=$(printf '%s' "$payload" \
+            | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" \
+            | awk '{print $NF}')
+
+          # --data-raw sends the payload byte-for-byte (no @-processing, no stripping),
+          # so the signature the Worker recomputes matches exactly. Capture the
+          # response body and HTTP status (appended on its own trailing line).
+          resp=$(curl -sS -w $'\n%{http_code}' -X POST "$WORKER_URL/webhook" \
+            -H "Content-Type: application/json" \
+            -H "X-Signature-256: sha256=$sig" \
+            --data-raw "$payload")
+          code=$(printf '%s' "$resp" | tail -n1)
+          body=$(printf '%s' "$resp" | sed '$d')
+          echo "Worker HTTP $code: $body"
+
+          if [ "$code" -ge 400 ]; then
+            echo "Worker returned error status $code" >&2
+            exit 1
+          fi
+
+          # If the issue author hasn't authorized yet, the Worker replies with
+          # status=needs_auth and a one-time auth_url. Post it as a comment so
+          # the author can grant access; the next issue they open will be resolved.
+          status=$(printf '%s' "$body" | jq -r '.status // empty')
+          if [ "$status" = "needs_auth" ]; then
+            auth_url=$(printf '%s' "$body" | jq -r '.auth_url')
+            # Build the comment with printf so every YAML line stays indented
+            # inside this block scalar (a line at column 0 would end the scalar).
+            comment=$(printf '%s\n\n%s\n\n%s' \
+              "👋 @${ACTOR}, I can open a pull request for this automatically, but first I need your one-time authorization to act on your behalf." \
+              "**[Click here to authorize](${auth_url})**" \
+              "As soon as you authorize, I'll pick up this issue automatically and open a pull request — nothing else needed from you.")
+            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "$comment"
+          fi

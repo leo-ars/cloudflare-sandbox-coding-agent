@@ -1,0 +1,21 @@
+# Worker secrets. Copy this file to `.dev.vars` for local development, or provide
+# these values when prompted by the Deploy to Cloudflare button. Never commit real
+# values — `.dev.vars` is gitignored.
+
+# Shared HMAC secret. MUST match the `WEBHOOK_SECRET` repo secret used by the
+# GitHub Action. Generate with: openssl rand -hex 32
+WEBHOOK_SECRET=
+
+# AES-256-GCM key (exactly 32 bytes / 64 hex chars) used to encrypt GitHub tokens
+# at rest in KV. Generate with: openssl rand -hex 32
+TOKEN_ENC_KEY=
+
+# Anthropic API key that powers Claude Code. Injected by the Worker's egress
+# proxy — it never enters the sandbox.
+ANTHROPIC_API_KEY=
+
+# GitHub OAuth App credentials for the user-impersonation login flow. You can
+# leave these blank at deploy time and set them later with `wrangler secret put`,
+# because registering the OAuth App requires your deployed callback URL first.
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=

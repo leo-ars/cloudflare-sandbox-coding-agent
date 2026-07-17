@@ -1,0 +1,48 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "issue-resolver",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-17",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Ephemeral container that runs Claude Code, built from ./Dockerfile
+  // (sandbox base + Claude Code CLI + gh). standard-1 gives it enough
+  // RAM/CPU/disk (lite is too small). `wrangler deploy` builds and pushes the
+  // image, so Workers Builds (used by the Deploy to Cloudflare button) handles
+  // the container build in CI.
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "image": "./Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 10
+    }
+  ],
+
+  // The Sandbox Durable Object (provided by @cloudflare/sandbox) backs each
+  // container instance.
+  "durable_objects": {
+    "bindings": [{ "class_name": "Sandbox", "name": "Sandbox" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Sandbox"] }],
+
+  // KV: encrypted credential + run storage.
+  //   USER_TOKENS  user:<login>                 -> AES-GCM(GitHub OAuth token)  (durable)
+  //                pending:<login>:<repo>:<num> -> issue queued before auth     (TTL 24h)
+  //   RUN_TOKENS   run:<runToken>               -> AES-GCM(run context JSON)    (TTL 15m)
+  // These ids point at the reference deployment. The Deploy to Cloudflare button
+  // provisions fresh namespaces and rewrites them in each deployer's own repo.
+  "kv_namespaces": [
+    { "binding": "USER_TOKENS", "id": "0680f216d011416eb2bc97de02cc45ed" },
+    { "binding": "RUN_TOKENS", "id": "224b81a284f84e4b8ccff428ba7088a5" }
+  ],
+
+  // Public base URL of this Worker, used to build the OAuth callback URL and the
+  // sandbox egress-proxy base. After your first deploy, set this to your Worker's
+  // own URL so OAuth callbacks resolve.
+  "vars": {
+    "PUBLIC_URL": "https://issue-resolver.leoarsenin.workers.dev"
+  },
+
+  "observability": { "enabled": true }
+}

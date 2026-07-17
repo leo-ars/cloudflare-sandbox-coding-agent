@@ -1,0 +1,43 @@
+{
+  "name": "issue-resolver",
+  "version": "1.0.0",
+  "description": "Automated issue-resolution system: GitHub Actions -> Cloudflare Worker -> Sandbox running Claude Code -> Pull Request",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "0.12.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260710.1",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "WEBHOOK_SECRET": {
+        "description": "Shared HMAC secret. Must match the `WEBHOOK_SECRET` repo secret used by the GitHub Action. Generate one with `openssl rand -hex 32`."
+      },
+      "TOKEN_ENC_KEY": {
+        "description": "AES-256-GCM key (32 bytes) used to encrypt GitHub tokens at rest. Generate one with `openssl rand -hex 32`."
+      },
+      "ANTHROPIC_API_KEY": {
+        "description": "Your [Anthropic API key](https://console.anthropic.com/) that powers Claude Code."
+      },
+      "GITHUB_CLIENT_ID": {
+        "description": "GitHub OAuth App client id. Leave blank now; set it after you register your OAuth App (its callback needs the deployed URL)."
+      },
+      "GITHUB_CLIENT_SECRET": {
+        "description": "GitHub OAuth App client secret. Set it after registering your OAuth App."
+      },
+      "PUBLIC_URL": {
+        "description": "Your deployed Worker URL, e.g. `https://issue-resolver.<subdomain>.workers.dev`. Update after the first deploy so OAuth callbacks resolve."
+      }
+    }
+  }
+}
