@@ -27,28 +27,29 @@ there's always a trail of what happened.
 
 ## How it works
 
-```
-issues:[opened]
-   │  .github/workflows/issue-trigger.yml
-   │  HMAC-SHA256 signed webhook  (X-Signature-256)
-   ▼
-Cloudflare Worker  (src/index.ts)
-   1. verify the HMAC signature                     ← webhook authenticity
-   2. look up the issue author's GitHub token        ← per-user identity
-        └─ none? store the issue as "pending", reply needs_auth,
-           the Action posts a one-time authorization link
-   3. mint a short-lived, opaque RUN_TOKEN (TTL 15m)
-   4. return 202 and continue in the background (ctx.waitUntil)
-   5. boot the Sandbox, write the issue context, start Claude Code (detached)
-   ▼
-Sandbox container   (Dockerfile: cloudflare/sandbox + Claude Code CLI + gh)
-   • holds ONLY the RUN_TOKEN — never a real credential
-   • every outbound request is pointed back at the Worker's /proxy/* endpoints
-   ▼
-Worker egress proxies   ← REAL SECRETS INJECTED HERE, outside the sandbox
-   /proxy/anthropic/*  →  api.anthropic.com   (injects ANTHROPIC_API_KEY)
-   /proxy/github/*     →  github.com  (git)   (injects the user's token, Basic)
-   /proxy/gh-api/*     →  api.github.com       (injects the user's token, Bearer)
+```mermaid
+flowchart TB
+    issue([Issue opened]) -->|"issue-trigger.yml<br/>HMAC-SHA256 signed webhook"| worker
+
+    subgraph trusted["Cloudflare Worker — trusted (holds real secrets)"]
+        worker["Worker (src/index.ts)<br/>1. verify HMAC signature<br/>2. look up author's GitHub token<br/>3. mint opaque RUN_TOKEN (TTL 15m)<br/>4. return 202, run in background"]
+        proxy["Egress proxies /proxy/*<br/>validate RUN_TOKEN, inject the real credential"]
+    end
+
+    worker -.->|"no token: store pending +<br/>reply needs_auth"| authlink["Action posts one-time<br/>authorization link"]
+    authlink -.->|"user authorizes<br/>(/oauth/login → /oauth/callback)"| worker
+
+    worker -->|"boot sandbox, start Claude Code (detached)"| sandbox
+
+    subgraph untrusted["Ephemeral Sandbox — untrusted (only holds RUN_TOKEN)"]
+        sandbox["Container: cloudflare/sandbox<br/>+ Claude Code CLI + gh<br/>reads issue, writes fix, commits"]
+    end
+
+    sandbox -->|"all egress via RUN_TOKEN"| proxy
+    proxy -->|"inject ANTHROPIC_API_KEY"| anthropic["api.anthropic.com"]
+    proxy -->|"inject user token (Basic)"| gitgh["github.com (git)"]
+    proxy -->|"inject user token (Bearer)"| ghapi["api.github.com"]
+    ghapi --> pr([Pull request opened as the user])
 ```
 
 ## Design highlights
