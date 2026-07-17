@@ -95,8 +95,15 @@ merge-time.)
 | Path | Purpose |
 |------|---------|
 | `.github/workflows/issue-trigger.yml` | Signs the issue payload and POSTs it to the Worker; posts the auth link when needed |
-| `src/index.ts` | Worker: webhook, OAuth login/callback, sandbox orchestration, egress proxies |
+| `src/index.ts` | Request router + `info` page; re-exports the Sandbox Durable Object |
+| `src/webhook.ts` | Signed webhook handler (verify → resolve token → launch or `needs_auth`) |
+| `src/oauth.ts` | GitHub OAuth login + callback (per-user token, auto-resume) |
+| `src/runs.ts` | Run lifecycle: pending queue, run-token minting, sandbox boot, token lookup |
+| `src/agent.ts` | The prompt + bash wrapper that run inside the sandbox |
+| `src/proxies.ts` | The three credential-injecting egress proxies |
 | `src/crypto.ts` | HMAC verification + AES-256-GCM encryption of tokens at rest |
+| `src/http.ts` | Small header / encoding / base64url helpers |
+| `src/types.ts` | Shared interfaces (`Env`, `RunContext`, `PendingRun`) |
 | `wrangler.jsonc` | Worker + Container + Durable Object + KV configuration |
 | `.dev.vars.example` | Secret names the Deploy to Cloudflare button prompts for |
 | `Dockerfile` | Sandbox image: `cloudflare/sandbox` + Claude Code CLI + `gh` |
